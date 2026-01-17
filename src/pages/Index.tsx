@@ -1,12 +1,23 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { Hero } from '@/components/landing/Hero';
+import { DigestPreview } from '@/components/landing/DigestPreview';
+import { VenueGrid } from '@/components/landing/VenueGrid';
 
 const Index = () => {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-background">
+      <Hero />
+      <DigestPreview />
+      <VenueGrid />
+      
+      {/* Footer */}
+      <footer className="py-12 px-4 border-t border-border">
+        <div className="max-w-6xl mx-auto text-center">
+          <h3 className="font-serif text-2xl text-gradient-gold mb-2">Brief AI</h3>
+          <p className="text-muted-foreground text-sm">
+            Your personal cultural scout for Tel Aviv
+          </p>
+        </div>
+      </footer>
     </div>
   );
 };
