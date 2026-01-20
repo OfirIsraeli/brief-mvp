@@ -57,7 +57,7 @@ export const Hero = () => {
           <Button 
             variant="hero" 
             size="xl" 
-            onClick={() => navigate('/onboarding')}
+            onClick={() => navigate('/login')}
             className="group"
           >
             Create Your Brief
@@ -66,9 +66,9 @@ export const Hero = () => {
           <Button 
             variant="heroOutline" 
             size="xl"
-            onClick={() => navigate('/dashboard')}
+            onClick={() => navigate('/login')}
           >
-            View Dashboard
+            Sign In
           </Button>
         </motion.div>
 

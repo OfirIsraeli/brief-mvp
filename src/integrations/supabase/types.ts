@@ -14,7 +14,51 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      briefs: {
+        Row: {
+          artists: string[] | null
+          created_at: string
+          delivery_contact: string
+          delivery_method: string
+          genres: string[] | null
+          id: string
+          is_active: boolean
+          name: string
+          schedule: Json
+          updated_at: string
+          user_id: string
+          venues: string[] | null
+        }
+        Insert: {
+          artists?: string[] | null
+          created_at?: string
+          delivery_contact?: string
+          delivery_method?: string
+          genres?: string[] | null
+          id?: string
+          is_active?: boolean
+          name: string
+          schedule?: Json
+          updated_at?: string
+          user_id: string
+          venues?: string[] | null
+        }
+        Update: {
+          artists?: string[] | null
+          created_at?: string
+          delivery_contact?: string
+          delivery_method?: string
+          genres?: string[] | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          schedule?: Json
+          updated_at?: string
+          user_id?: string
+          venues?: string[] | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

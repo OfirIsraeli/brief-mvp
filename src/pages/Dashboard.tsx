@@ -4,6 +4,7 @@ import {
   ArrowLeft, 
   Bell, 
   Calendar, 
+  LogOut,
   Mail, 
   MessageCircle, 
   MoreVertical, 
@@ -18,18 +19,43 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { useBriefStore } from '@/store/briefStore';
+import { useBriefs } from '@/hooks/useBriefs';
+import { useAuth } from '@/contexts/AuthContext';
 import { VENUES } from '@/types/brief';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const Dashboard = () => {
   const navigate = useNavigate();
-  const { briefs, deleteBrief, toggleBriefActive } = useBriefStore();
+  const { briefs, isLoading, deleteBrief, toggleBriefActive } = useBriefs();
+  const { user, signOut } = useAuth();
 
   const getVenueName = (venueId: string) => {
     const venue = VENUES.find((v) => v.id === venueId);
     return venue?.name || venueId;
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
+
+  const handleDeleteBrief = async (id: string) => {
+    try {
+      await deleteBrief(id);
+    } catch (error) {
+      console.error('Error deleting brief:', error);
+    }
+  };
+
+  const handleToggleBrief = async (id: string) => {
+    try {
+      await toggleBriefActive(id);
+    } catch (error) {
+      console.error('Error toggling brief:', error);
+    }
   };
 
   return (
@@ -49,10 +75,34 @@ const Dashboard = () => {
               <span className="font-serif text-xl">Brief AI</span>
             </div>
           </div>
-          <Button variant="hero" size="default" onClick={() => navigate('/onboarding')}>
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New Brief</span>
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button variant="hero" size="default" onClick={() => navigate('/onboarding')}>
+              <Plus className="w-4 h-4" />
+              <span className="hidden sm:inline">New Brief</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="rounded-full focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-background">
+                  <Avatar className="w-9 h-9">
+                    <AvatarImage src={user?.user_metadata?.avatar_url} alt={user?.email || 'User'} />
+                    <AvatarFallback className="bg-primary text-primary-foreground">
+                      {user?.email?.charAt(0).toUpperCase() || 'U'}
+                    </AvatarFallback>
+                  </Avatar>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <div className="px-2 py-1.5">
+                  <p className="text-sm font-medium truncate">{user?.email}</p>
+                </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSignOut}>
+                  <LogOut className="w-4 h-4 mr-2" />
+                  Sign Out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </header>
 
@@ -70,7 +120,12 @@ const Dashboard = () => {
             </p>
           </div>
 
-          {briefs.length === 0 ? (
+          {isLoading ? (
+            <div className="glass-card rounded-2xl p-12 text-center">
+              <Sparkles className="w-8 h-8 text-primary animate-pulse mx-auto mb-4" />
+              <p className="text-muted-foreground">Loading your briefs...</p>
+            </div>
+          ) : briefs.length === 0 ? (
             <motion.div
               className="glass-card rounded-2xl p-12 text-center"
               initial={{ opacity: 0, scale: 0.95 }}
@@ -174,7 +229,7 @@ const Dashboard = () => {
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => toggleBriefActive(brief.id)}>
+                        <DropdownMenuItem onClick={() => handleToggleBrief(brief.id)}>
                           {brief.isActive ? (
                             <>
                               <Pause className="w-4 h-4 mr-2" />
@@ -188,7 +243,7 @@ const Dashboard = () => {
                           )}
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => deleteBrief(brief.id)}
+                          onClick={() => handleDeleteBrief(brief.id)}
                           className="text-destructive focus:text-destructive"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
