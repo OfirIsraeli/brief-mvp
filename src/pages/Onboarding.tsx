@@ -4,8 +4,22 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, ArrowRight, Check, Mail, MessageCircle, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useBriefStore } from '@/store/briefStore';
-import { VENUES, GENRES, DAYS_OF_WEEK, EVENT_WINDOWS } from '@/types/brief';
+import { useBriefs } from '@/hooks/useBriefs';
+import { VENUES, GENRES, DAYS_OF_WEEK, EVENT_WINDOWS, OnboardingData } from '@/types/brief';
+
+const initialOnboarding: OnboardingData = {
+  step: 0,
+  artists: [],
+  genres: [],
+  venues: [],
+  schedule: {
+    dayOfWeek: 'Thursday',
+    time: '16:00',
+    eventWindow: 'This weekend',
+  },
+  deliveryMethod: 'whatsapp',
+  deliveryContact: '',
+};
 
 const OnboardingStep = ({ 
   children, 
@@ -33,32 +47,37 @@ const OnboardingStep = ({
 
 const Onboarding = () => {
   const navigate = useNavigate();
-  const { onboardingData, setOnboardingData, addBrief, resetOnboarding } = useBriefStore();
+  const { addBrief, isAdding } = useBriefs();
+  const [onboardingData, setOnboardingDataState] = useState<OnboardingData>(initialOnboarding);
   const [step, setStep] = useState(0);
   const [artistInput, setArtistInput] = useState('');
 
   const totalSteps = 5;
 
-  const handleNext = () => {
+  const setOnboardingData = (data: Partial<OnboardingData>) => {
+    setOnboardingDataState(prev => ({ ...prev, ...data }));
+  };
+
+  const handleNext = async () => {
     if (step < totalSteps - 1) {
       setStep(step + 1);
     } else {
       // Create the brief
-      const newBrief = {
-        id: crypto.randomUUID(),
-        name: `Brief #${Date.now()}`,
-        artists: onboardingData.artists,
-        genres: onboardingData.genres,
-        venues: onboardingData.venues,
-        schedule: onboardingData.schedule,
-        deliveryMethod: onboardingData.deliveryMethod,
-        deliveryContact: onboardingData.deliveryContact,
-        createdAt: new Date(),
-        isActive: true,
-      };
-      addBrief(newBrief);
-      resetOnboarding();
-      navigate('/dashboard');
+      try {
+        await addBrief({
+          name: `Brief #${Date.now()}`,
+          artists: onboardingData.artists,
+          genres: onboardingData.genres,
+          venues: onboardingData.venues,
+          schedule: onboardingData.schedule,
+          deliveryMethod: onboardingData.deliveryMethod,
+          deliveryContact: onboardingData.deliveryContact,
+          isActive: true,
+        });
+        navigate('/dashboard');
+      } catch (error) {
+        console.error('Error creating brief:', error);
+      }
     }
   };
 
@@ -66,7 +85,7 @@ const Onboarding = () => {
     if (step > 0) {
       setStep(step - 1);
     } else {
-      navigate('/');
+      navigate('/dashboard');
     }
   };
 
@@ -394,9 +413,9 @@ const Onboarding = () => {
           <Button
             variant="hero"
             onClick={handleNext}
-            disabled={!canProceed()}
+            disabled={!canProceed() || isAdding}
           >
-            {step === totalSteps - 1 ? 'Create Brief' : 'Continue'}
+            {isAdding ? 'Creating...' : step === totalSteps - 1 ? 'Create Brief' : 'Continue'}
             <ArrowRight className="w-4 h-4 ml-2" />
           </Button>
         </div>
