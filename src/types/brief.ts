@@ -30,18 +30,24 @@ export interface OnboardingData {
 }
 
 export const VENUES = [
-  { id: 'barby', name: 'Barby', category: 'Music Venue' },
-  { id: 'teder', name: 'Teder.fm', category: 'Music Venue' },
-  { id: 'levontin7', name: 'Levontin 7', category: 'Music Venue' },
-  { id: 'kuli-alma', name: 'Kuli Alma', category: 'Club' },
-  { id: 'ozen-bar', name: 'Ozen Bar', category: 'Music Venue' },
-  { id: 'suzanne-dellal', name: 'Suzanne Dellal', category: 'Theatre' },
-  { id: 'liebling-haus', name: 'Liebling Haus', category: 'Gallery' },
-  { id: 'artport', name: 'Artport Tel Aviv', category: 'Gallery' },
-  { id: 'secret-telaviv', name: 'Secret Tel Aviv', category: 'Events' },
-  { id: 'go-out', name: 'Go Out', category: 'Ticketing' },
-  { id: 'eventim', name: 'Eventim', category: 'Ticketing' },
-  { id: 'ticketmaster', name: 'Ticketmaster IL', category: 'Ticketing' },
+  // Music Venues
+  { id: 'barby', name: 'Barby', category: 'Music Venue', url: 'https://barby.co.il' },
+  { id: 'teder', name: 'Teder.fm / Romano', category: 'Music Venue', url: 'https://teder.fm' },
+  { id: 'levontin7', name: 'Levontin 7', category: 'Music Venue', url: 'https://levontin7.com' },
+  { id: 'ozen-bar', name: 'Ozen Bar', category: 'Music Venue', url: 'https://ozen.co.il' },
+  // Clubs
+  { id: 'kuli-alma', name: 'Kuli Alma', category: 'Club', url: 'https://www.facebook.com/kulialma' },
+  // Theatre & Dance
+  { id: 'suzanne-dellal', name: 'Suzanne Dellal', category: 'Theatre', url: 'https://suzannedellal.org.il' },
+  // Galleries
+  { id: 'artport', name: 'Artport Tel Aviv', category: 'Gallery', url: 'https://artport.art' },
+  // Events & Ticketing
+  { id: 'secret-telaviv', name: 'Secret Tel Aviv', category: 'Events', url: 'https://secrettelaviv.com' },
+  { id: 'go-out', name: 'Go Out', category: 'Ticketing', url: 'https://go-out.co' },
+  { id: 'eventim', name: 'Eventim', category: 'Ticketing', url: 'https://eventim.co.il' },
+  { id: 'ticketmaster', name: 'Ticketmaster IL', category: 'Ticketing', url: 'https://ticketmaster.co.il' },
+  // Municipal
+  { id: 'tlv-municipality', name: 'TLV Municipality', category: 'Municipal', url: 'https://tel-aviv.gov.il' },
 ];
 
 export const GENRES = [
