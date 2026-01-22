@@ -38,20 +38,37 @@ interface Event {
 
 const DAYS_OF_WEEK = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Check if a brief should be sent now based on its schedule
-const shouldSendBrief = (schedule: Brief['schedule']): boolean => {
+// Get current time in Israel timezone
+const getIsraelTime = (): Date => {
   const now = new Date();
-  const currentDay = DAYS_OF_WEEK[now.getDay()];
-  const currentHour = now.getHours();
+  // Convert to Israel time using Intl.DateTimeFormat
+  const israelTimeStr = now.toLocaleString('en-US', { timeZone: 'Asia/Jerusalem' });
+  return new Date(israelTimeStr);
+};
+
+// Check if a brief should be sent now based on its schedule (in Israel time)
+const shouldSendBrief = (schedule: Brief['schedule']): boolean => {
+  const israelNow = getIsraelTime();
+  const currentDay = DAYS_OF_WEEK[israelNow.getDay()];
+  const currentHour = israelNow.getHours();
+  const currentMinute = israelNow.getMinutes();
   
-  // Parse scheduled time (e.g., "09:00" -> 9)
-  const scheduledHour = parseInt(schedule.time.split(':')[0], 10);
+  // Parse scheduled time (e.g., "23:15" -> hour: 23, minute: 15)
+  const [scheduledHour, scheduledMinute] = schedule.time.split(':').map(Number);
   
-  // Check if it's the right day and within the hour window
-  // We use a 1-hour window to account for cron timing
-  return schedule.dayOfWeek === currentDay && 
-         currentHour >= scheduledHour && 
-         currentHour < scheduledHour + 1;
+  // Check if it's the right day and within a 30-minute window of the scheduled time
+  // This accounts for cron running at :00 and :30
+  if (schedule.dayOfWeek !== currentDay) {
+    return false;
+  }
+  
+  const scheduledTotalMinutes = scheduledHour * 60 + scheduledMinute;
+  const currentTotalMinutes = currentHour * 60 + currentMinute;
+  
+  // Send if we're within 30 minutes after the scheduled time
+  // This ensures the brief is sent during the cron run closest to the scheduled time
+  return currentTotalMinutes >= scheduledTotalMinutes && 
+         currentTotalMinutes < scheduledTotalMinutes + 30;
 };
 
 const handler = async (req: Request): Promise<Response> => {
