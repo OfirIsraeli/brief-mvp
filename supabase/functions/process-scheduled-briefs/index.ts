@@ -56,8 +56,8 @@ const shouldSendBrief = (schedule: Brief['schedule']): boolean => {
   // Parse scheduled time (e.g., "23:15" -> hour: 23, minute: 15)
   const [scheduledHour, scheduledMinute] = schedule.time.split(':').map(Number);
   
-  // Check if it's the right day and within a 30-minute window of the scheduled time
-  // This accounts for cron running at :00 and :30
+  // Check if it's the right day and within a 10-minute window of the scheduled time
+  // This accounts for cron running every 10 minutes
   if (schedule.dayOfWeek !== currentDay) {
     return false;
   }
@@ -65,10 +65,10 @@ const shouldSendBrief = (schedule: Brief['schedule']): boolean => {
   const scheduledTotalMinutes = scheduledHour * 60 + scheduledMinute;
   const currentTotalMinutes = currentHour * 60 + currentMinute;
   
-  // Send if we're within 30 minutes after the scheduled time
+  // Send if we're within 10 minutes after the scheduled time
   // This ensures the brief is sent during the cron run closest to the scheduled time
   return currentTotalMinutes >= scheduledTotalMinutes && 
-         currentTotalMinutes < scheduledTotalMinutes + 30;
+         currentTotalMinutes < scheduledTotalMinutes + 10;
 };
 
 const handler = async (req: Request): Promise<Response> => {
