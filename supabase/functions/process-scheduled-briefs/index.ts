@@ -122,7 +122,8 @@ const handler = async (req: Request): Promise<Response> => {
       }
 
       try {
-        // Fetch events for this brief
+        // Step 1: Scrape events from venues
+        console.log(`[${brief.name}] Step 1: Scraping venues...`);
         const fetchEventsResponse = await fetch(
           `${supabaseUrl}/functions/v1/fetch-events`,
           {
@@ -147,10 +148,47 @@ const handler = async (req: Request): Promise<Response> => {
           throw new Error(`Failed to fetch events: ${errorText}`);
         }
 
-        const { events } = await fetchEventsResponse.json() as { events: Event[] };
-        console.log(`Found ${events.length} matching events for brief ${brief.name}`);
+        const scrapeResult = await fetchEventsResponse.json() as { events: Event[] };
+        console.log(`[${brief.name}] Scraped ${scrapeResult.events.length} raw events`);
 
-        // Send the digest
+        // Step 2: Filter events using AI based on genres/artists
+        console.log(`[${brief.name}] Step 2: AI filtering by genres [${(brief.genres || []).join(', ')}] and artists [${(brief.artists || []).join(', ')}]...`);
+        const filterResponse = await fetch(
+          `${supabaseUrl}/functions/v1/filter-events-ai`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${supabaseServiceKey}`,
+            },
+            body: JSON.stringify({
+              rawEvents: scrapeResult.events,
+              genres: brief.genres || [],
+              artists: brief.artists || [],
+              briefName: brief.name,
+            }),
+          }
+        );
+
+        if (!filterResponse.ok) {
+          const errorText = await filterResponse.text();
+          console.error(`[${brief.name}] AI filter failed, using raw events: ${errorText}`);
+          // Fallback to raw events if AI fails
+        }
+
+        let events: Event[];
+        if (filterResponse.ok) {
+          const filterResult = await filterResponse.json() as { events: Event[]; reasoning?: string };
+          events = filterResult.events;
+          console.log(`[${brief.name}] AI filtered to ${events.length} relevant events. Reasoning: ${filterResult.reasoning || 'N/A'}`);
+        } else {
+          // Fallback to raw events
+          events = scrapeResult.events;
+          console.log(`[${brief.name}] Using ${events.length} raw events (AI filter failed)`);
+        }
+
+        // Step 3: Send the digest with filtered events
+        console.log(`[${brief.name}] Step 3: Sending digest...`);
         const sendDigestResponse = await fetch(
           `${supabaseUrl}/functions/v1/send-digest`,
           {
