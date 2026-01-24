@@ -2,8 +2,20 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-trace-id",
 };
+
+// Logger with trace ID prefix
+const createLogger = (traceId?: string) => ({
+  log: (message: string, ...args: unknown[]) => {
+    const prefix = traceId ? `[${traceId}]` : '[filter-events-ai]';
+    console.log(`${prefix} ${message}`, ...args);
+  },
+  error: (message: string, ...args: unknown[]) => {
+    const prefix = traceId ? `[${traceId}]` : '[filter-events-ai]';
+    console.error(`${prefix} ${message}`, ...args);
+  },
+});
 
 interface Event {
   id: string;
@@ -20,6 +32,7 @@ interface Event {
 }
 
 interface FilterRequest {
+  traceId?: string;
   rawEvents: Event[];
   genres: string[];
   artists: string[];
@@ -37,36 +50,43 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Get trace ID from header or body
+  const headerTraceId = req.headers.get('X-Trace-Id');
+
   try {
-    const { rawEvents, genres, artists, briefName } = await req.json() as FilterRequest;
+    const { rawEvents, genres, artists, briefName, traceId: bodyTraceId } = await req.json() as FilterRequest;
+    const traceId = headerTraceId || bodyTraceId;
+    const logger = createLogger(traceId);
+    
     const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
     if (!lovableApiKey) {
-      console.error("LOVABLE_API_KEY not configured");
+      logger.error("LOVABLE_API_KEY not configured");
       return new Response(
-        JSON.stringify({ error: "AI service not configured" }),
+        JSON.stringify({ error: "AI service not configured", traceId }),
         { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
 
     if (!rawEvents || rawEvents.length === 0) {
-      console.log("No events to filter");
+      logger.log("No events to filter");
       return new Response(
-        JSON.stringify({ events: [], filteredCount: 0 }),
+        JSON.stringify({ events: [], filteredCount: 0, traceId }),
         { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
 
-    console.log(`Filtering ${rawEvents.length} events for brief "${briefName}" with genres: [${genres.join(', ')}] and artists: [${artists.join(', ')}]`);
+    logger.log(`Filtering ${rawEvents.length} events for brief "${briefName}" with genres: [${genres.join(', ')}] and artists: [${artists.join(', ')}]`);
 
     // If no genres and no artists specified, return all events
     if ((!genres || genres.length === 0) && (!artists || artists.length === 0)) {
-      console.log("No filtering criteria specified, returning all events");
+      logger.log("No filtering criteria specified, returning all events");
       return new Response(
         JSON.stringify({ 
           events: rawEvents,
           filteredCount: rawEvents.length,
           totalCount: rawEvents.length,
+          traceId,
         }),
         { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
@@ -127,7 +147,7 @@ IMPORTANT: Return ONLY the JSON object, no markdown formatting or additional tex
 
     if (!aiResponse.ok) {
       if (aiResponse.status === 429) {
-        console.error("AI rate limit exceeded");
+        logger.error("AI rate limit exceeded");
         // Fallback: return all events if rate limited
         return new Response(
           JSON.stringify({ 
@@ -135,32 +155,34 @@ IMPORTANT: Return ONLY the JSON object, no markdown formatting or additional tex
             filteredCount: rawEvents.length,
             totalCount: rawEvents.length,
             warning: "AI rate limit exceeded, returning all events",
+            traceId,
           }),
           { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
       }
       if (aiResponse.status === 402) {
-        console.error("AI credits exhausted");
+        logger.error("AI credits exhausted");
         return new Response(
           JSON.stringify({ 
             events: rawEvents,
             filteredCount: rawEvents.length,
             totalCount: rawEvents.length,
             warning: "AI credits exhausted, returning all events",
+            traceId,
           }),
           { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
         );
       }
       
       const errorText = await aiResponse.text();
-      console.error("AI gateway error:", aiResponse.status, errorText);
+      logger.error("AI gateway error:", aiResponse.status, errorText);
       throw new Error(`AI gateway error: ${aiResponse.status}`);
     }
 
     const aiData = await aiResponse.json();
     const aiContent = aiData.choices?.[0]?.message?.content || '';
     
-    console.log("AI response:", aiContent);
+    logger.log("AI response received");
 
     // Parse AI response
     let relevantIndices: number[] = [];
@@ -181,7 +203,7 @@ IMPORTANT: Return ONLY the JSON object, no markdown formatting or additional tex
         }
       }
     } catch (parseError) {
-      console.error("Error parsing AI response:", parseError);
+      logger.error("Error parsing AI response:", String(parseError));
       // Fallback: return all events
       relevantIndices = rawEvents.map((_, i) => i);
     }
@@ -191,7 +213,7 @@ IMPORTANT: Return ONLY the JSON object, no markdown formatting or additional tex
       .filter(index => index >= 0 && index < rawEvents.length)
       .map(index => rawEvents[index]);
 
-    console.log(`AI filtered to ${filteredEvents.length} relevant events. Reasoning: ${reasoning}`);
+    logger.log(`AI filtered to ${filteredEvents.length} relevant events. Reasoning: ${reasoning}`);
 
     return new Response(
       JSON.stringify({
@@ -199,6 +221,7 @@ IMPORTANT: Return ONLY the JSON object, no markdown formatting or additional tex
         filteredCount: filteredEvents.length,
         totalCount: rawEvents.length,
         reasoning,
+        traceId,
       }),
       {
         status: 200,
@@ -207,7 +230,7 @@ IMPORTANT: Return ONLY the JSON object, no markdown formatting or additional tex
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
-    console.error("Error in filter-events-ai:", errorMessage);
+    console.error("[filter-events-ai] Error:", errorMessage);
     return new Response(
       JSON.stringify({ error: errorMessage }),
       {

@@ -3,8 +3,20 @@ import { Resend } from "resend";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-trace-id",
 };
+
+// Logger with trace ID prefix
+const createLogger = (traceId?: string) => ({
+  log: (message: string, ...args: unknown[]) => {
+    const prefix = traceId ? `[${traceId}]` : '[send-digest]';
+    console.log(`${prefix} ${message}`, ...args);
+  },
+  error: (message: string, ...args: unknown[]) => {
+    const prefix = traceId ? `[${traceId}]` : '[send-digest]';
+    console.error(`${prefix} ${message}`, ...args);
+  },
+});
 
 interface Event {
   id: string;
@@ -19,6 +31,7 @@ interface Event {
 }
 
 interface DigestRequest {
+  traceId?: string;
   deliveryMethod: 'whatsapp' | 'email';
   deliveryContact: string;
   briefName: string;
@@ -93,7 +106,7 @@ const formatEmailHtml = (briefName: string, events: Event[]): string => {
 };
 
 // Send WhatsApp message via Twilio
-const sendWhatsApp = async (to: string, message: string): Promise<{ success: boolean; error?: string }> => {
+const sendWhatsApp = async (to: string, message: string, logger: ReturnType<typeof createLogger>): Promise<{ success: boolean; error?: string }> => {
   const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
   const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
   const fromNumber = Deno.env.get("TWILIO_WHATSAPP_FROM");
@@ -125,22 +138,22 @@ const sendWhatsApp = async (to: string, message: string): Promise<{ success: boo
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error("Twilio API error:", errorData);
+      logger.error("Twilio API error:", errorData);
       return { success: false, error: errorData.message || "Failed to send WhatsApp message" };
     }
 
     const data = await response.json();
-    console.log("WhatsApp message sent:", data.sid);
+    logger.log("WhatsApp message sent:", data.sid);
     return { success: true };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error("Error sending WhatsApp:", errorMessage);
+    logger.error("Error sending WhatsApp:", errorMessage);
     return { success: false, error: errorMessage };
   }
 };
 
 // Send email via Resend
-const sendEmail = async (to: string, subject: string, html: string): Promise<{ success: boolean; error?: string }> => {
+const sendEmail = async (to: string, subject: string, html: string, logger: ReturnType<typeof createLogger>): Promise<{ success: boolean; error?: string }> => {
   const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
   if (!resendApiKey) {
@@ -158,15 +171,15 @@ const sendEmail = async (to: string, subject: string, html: string): Promise<{ s
     });
 
     if (error) {
-      console.error("Resend API error:", error);
+      logger.error("Resend API error:", error);
       return { success: false, error: error.message };
     }
 
-    console.log("Email sent successfully to:", to);
+    logger.log("Email sent successfully to:", to);
     return { success: true };
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error("Error sending email:", errorMessage);
+    logger.error("Error sending email:", errorMessage);
     return { success: false, error: errorMessage };
   }
 };
@@ -176,26 +189,31 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
-  try {
-    const { deliveryMethod, deliveryContact, briefName, events }: DigestRequest = await req.json();
+  // Get trace ID from header
+  const headerTraceId = req.headers.get('X-Trace-Id');
 
-    console.log(`Sending digest "${briefName}" via ${deliveryMethod} to ${deliveryContact}`);
-    console.log(`Events count: ${events.length}`);
+  try {
+    const { deliveryMethod, deliveryContact, briefName, events, traceId: bodyTraceId }: DigestRequest = await req.json();
+    const traceId = headerTraceId || bodyTraceId;
+    const logger = createLogger(traceId);
+
+    logger.log(`Sending digest "${briefName}" via ${deliveryMethod} to ${deliveryContact}`);
+    logger.log(`Events count: ${events.length}`);
 
     let result: { success: boolean; error?: string };
 
     if (deliveryMethod === 'whatsapp') {
       const message = formatWhatsAppMessage(briefName, events);
-      result = await sendWhatsApp(deliveryContact, message);
+      result = await sendWhatsApp(deliveryContact, message, logger);
     } else {
       const subject = `🎵 ${briefName}: ${events.length} new event${events.length !== 1 ? 's' : ''}`;
       const html = formatEmailHtml(briefName, events);
-      result = await sendEmail(deliveryContact, subject, html);
+      result = await sendEmail(deliveryContact, subject, html, logger);
     }
 
     if (!result.success) {
       return new Response(
-        JSON.stringify({ error: result.error }),
+        JSON.stringify({ error: result.error, traceId }),
         {
           status: 500,
           headers: { "Content-Type": "application/json", ...corsHeaders },
@@ -208,6 +226,7 @@ const handler = async (req: Request): Promise<Response> => {
         success: true, 
         deliveryMethod,
         eventsCount: events.length,
+        traceId,
       }),
       {
         status: 200,
@@ -216,9 +235,9 @@ const handler = async (req: Request): Promise<Response> => {
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error("Error in send-digest:", errorMessage);
+    console.error("[send-digest] Error:", errorMessage);
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: errorMessage, traceId: headerTraceId }),
       {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders },

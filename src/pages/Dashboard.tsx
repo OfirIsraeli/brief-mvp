@@ -4,6 +4,7 @@ import {
   ArrowLeft, 
   Bell, 
   Calendar, 
+  Loader2,
   LogOut,
   Mail, 
   MessageCircle, 
@@ -12,7 +13,8 @@ import {
   Play, 
   Plus, 
   Sparkles, 
-  Trash2 
+  Trash2,
+  Zap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +25,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useBriefs } from '@/hooks/useBriefs';
+import { useTriggerBrief } from '@/hooks/useTriggerBrief';
 import { useAuth } from '@/contexts/AuthContext';
 import { VENUES } from '@/types/brief';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -30,6 +33,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 const Dashboard = () => {
   const navigate = useNavigate();
   const { briefs, isLoading, deleteBrief, toggleBriefActive } = useBriefs();
+  const { triggerBrief, isTriggering } = useTriggerBrief();
   const { user, signOut } = useAuth();
 
   const getVenueName = (venueId: string) => {
@@ -56,6 +60,9 @@ const Dashboard = () => {
     } catch (error) {
       console.error('Error toggling brief:', error);
     }
+  };
+  const handleTriggerBrief = async (id: string) => {
+    await triggerBrief(id);
   };
 
   return (
@@ -222,35 +229,57 @@ const Dashboard = () => {
                       </div>
                     </div>
 
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-2 hover:bg-secondary rounded-lg transition-colors">
-                          <MoreVertical className="w-5 h-5 text-muted-foreground" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleToggleBrief(brief.id)}>
-                          {brief.isActive ? (
-                            <>
-                              <Pause className="w-4 h-4 mr-2" />
-                              Pause Brief
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-4 h-4 mr-2" />
-                              Resume Brief
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
-                          onClick={() => handleDeleteBrief(brief.id)}
-                          className="text-destructive focus:text-destructive"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" />
-                          Delete Brief
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTriggerBrief(brief.id)}
+                        disabled={isTriggering === brief.id}
+                        className="shrink-0"
+                      >
+                        {isTriggering === brief.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Sending...
+                          </>
+                        ) : (
+                          <>
+                            <Zap className="w-4 h-4 mr-2" />
+                            Try it out
+                          </>
+                        )}
+                      </Button>
+
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button className="p-2 hover:bg-secondary rounded-lg transition-colors">
+                            <MoreVertical className="w-5 h-5 text-muted-foreground" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem onClick={() => handleToggleBrief(brief.id)}>
+                            {brief.isActive ? (
+                              <>
+                                <Pause className="w-4 h-4 mr-2" />
+                                Pause Brief
+                              </>
+                            ) : (
+                              <>
+                                <Play className="w-4 h-4 mr-2" />
+                                Resume Brief
+                              </>
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => handleDeleteBrief(brief.id)}
+                            className="text-destructive focus:text-destructive"
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Delete Brief
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </div>
                 </motion.div>
               ))}

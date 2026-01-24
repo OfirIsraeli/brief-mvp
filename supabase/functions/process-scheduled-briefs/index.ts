@@ -6,6 +6,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+// Generate a unique trace ID for observability
+const generateTraceId = (): string => {
+  return `trace_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
+};
+
+// Logger with trace ID prefix
+const createLogger = (traceId: string) => ({
+  log: (message: string, ...args: unknown[]) => {
+    console.log(`[${traceId}] ${message}`, ...args);
+  },
+  error: (message: string, ...args: unknown[]) => {
+    console.error(`[${traceId}] ${message}`, ...args);
+  },
+});
+
 interface Brief {
   id: string;
   user_id: string;
@@ -76,13 +91,17 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Generate trace ID for this request
+  const traceId = generateTraceId();
+  const logger = createLogger(traceId);
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    console.log("Starting scheduled brief processing...");
+    logger.log("Starting scheduled brief processing...");
     const processStart = new Date().toISOString();
 
     // Fetch all active briefs
@@ -95,7 +114,7 @@ const handler = async (req: Request): Promise<Response> => {
       throw new Error(`Failed to fetch briefs: ${briefsError.message}`);
     }
 
-    console.log(`Found ${briefs?.length || 0} active briefs`);
+    logger.log(`Found ${briefs?.length || 0} active briefs`);
 
     const results: Array<{
       briefId: string;
@@ -103,27 +122,33 @@ const handler = async (req: Request): Promise<Response> => {
       status: 'sent' | 'skipped' | 'error';
       reason?: string;
       eventsCount?: number;
+      traceId?: string;
     }> = [];
 
     // Process each brief
     for (const brief of (briefs as Brief[]) || []) {
-      console.log(`Processing brief: ${brief.name} (${brief.id})`);
+      // Generate a sub-trace for each brief
+      const briefTraceId = `${traceId}_${brief.id.slice(0, 8)}`;
+      const briefLogger = createLogger(briefTraceId);
+      
+      briefLogger.log(`Processing brief: ${brief.name}`);
 
       // Check if this brief should be sent now based on schedule
       if (!shouldSendBrief(brief.schedule)) {
-        console.log(`Skipping brief ${brief.name}: not scheduled for now`);
+        briefLogger.log(`Skipping: not scheduled for now`);
         results.push({
           briefId: brief.id,
           briefName: brief.name,
           status: 'skipped',
           reason: 'Not scheduled for current time',
+          traceId: briefTraceId,
         });
         continue;
       }
 
       try {
         // Step 1: Scrape events from venues
-        console.log(`[${brief.name}] Step 1: Scraping venues...`);
+        briefLogger.log(`Step 1: Scraping venues...`);
         const fetchEventsResponse = await fetch(
           `${supabaseUrl}/functions/v1/fetch-events`,
           {
@@ -131,8 +156,10 @@ const handler = async (req: Request): Promise<Response> => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${supabaseServiceKey}`,
+              'X-Trace-Id': briefTraceId,
             },
             body: JSON.stringify({
+              traceId: briefTraceId,
               brief: {
                 venues: brief.venues,
                 genres: brief.genres,
@@ -149,10 +176,10 @@ const handler = async (req: Request): Promise<Response> => {
         }
 
         const scrapeResult = await fetchEventsResponse.json() as { events: Event[] };
-        console.log(`[${brief.name}] Scraped ${scrapeResult.events.length} raw events`);
+        briefLogger.log(`Scraped ${scrapeResult.events.length} raw events`);
 
         // Step 2: Filter events using AI based on genres/artists
-        console.log(`[${brief.name}] Step 2: AI filtering by genres [${(brief.genres || []).join(', ')}] and artists [${(brief.artists || []).join(', ')}]...`);
+        briefLogger.log(`Step 2: AI filtering by genres [${(brief.genres || []).join(', ')}] and artists [${(brief.artists || []).join(', ')}]...`);
         const filterResponse = await fetch(
           `${supabaseUrl}/functions/v1/filter-events-ai`,
           {
@@ -160,8 +187,10 @@ const handler = async (req: Request): Promise<Response> => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${supabaseServiceKey}`,
+              'X-Trace-Id': briefTraceId,
             },
             body: JSON.stringify({
+              traceId: briefTraceId,
               rawEvents: scrapeResult.events,
               genres: brief.genres || [],
               artists: brief.artists || [],
@@ -172,7 +201,7 @@ const handler = async (req: Request): Promise<Response> => {
 
         if (!filterResponse.ok) {
           const errorText = await filterResponse.text();
-          console.error(`[${brief.name}] AI filter failed, using raw events: ${errorText}`);
+          briefLogger.error(`AI filter failed, using raw events: ${errorText}`);
           // Fallback to raw events if AI fails
         }
 
@@ -180,15 +209,15 @@ const handler = async (req: Request): Promise<Response> => {
         if (filterResponse.ok) {
           const filterResult = await filterResponse.json() as { events: Event[]; reasoning?: string };
           events = filterResult.events;
-          console.log(`[${brief.name}] AI filtered to ${events.length} relevant events. Reasoning: ${filterResult.reasoning || 'N/A'}`);
+          briefLogger.log(`AI filtered to ${events.length} relevant events. Reasoning: ${filterResult.reasoning || 'N/A'}`);
         } else {
           // Fallback to raw events
           events = scrapeResult.events;
-          console.log(`[${brief.name}] Using ${events.length} raw events (AI filter failed)`);
+          briefLogger.log(`Using ${events.length} raw events (AI filter failed)`);
         }
 
         // Step 3: Send the digest with filtered events
-        console.log(`[${brief.name}] Step 3: Sending digest...`);
+        briefLogger.log(`Step 3: Sending digest...`);
         const sendDigestResponse = await fetch(
           `${supabaseUrl}/functions/v1/send-digest`,
           {
@@ -196,8 +225,10 @@ const handler = async (req: Request): Promise<Response> => {
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${supabaseServiceKey}`,
+              'X-Trace-Id': briefTraceId,
             },
             body: JSON.stringify({
+              traceId: briefTraceId,
               deliveryMethod: brief.delivery_method,
               deliveryContact: brief.delivery_contact,
               briefName: brief.name,
@@ -218,22 +249,25 @@ const handler = async (req: Request): Promise<Response> => {
           briefName: brief.name,
           status: 'sent',
           eventsCount: events.length,
+          traceId: briefTraceId,
         });
 
-        console.log(`Successfully sent digest for brief ${brief.name}`);
+        briefLogger.log(`Successfully sent digest`);
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error(`Error processing brief ${brief.name}:`, errorMessage);
+        briefLogger.error(`Error processing brief:`, errorMessage);
         results.push({
           briefId: brief.id,
           briefName: brief.name,
           status: 'error',
           reason: errorMessage,
+          traceId: briefTraceId,
         });
       }
     }
 
     const summary = {
+      traceId,
       processedAt: processStart,
       completedAt: new Date().toISOString(),
       totalBriefs: briefs?.length || 0,
@@ -243,7 +277,7 @@ const handler = async (req: Request): Promise<Response> => {
       results,
     };
 
-    console.log("Processing complete:", JSON.stringify(summary));
+    logger.log("Processing complete:", JSON.stringify(summary));
 
     return new Response(
       JSON.stringify(summary),
@@ -254,9 +288,9 @@ const handler = async (req: Request): Promise<Response> => {
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error("Error in process-scheduled-briefs:", errorMessage);
+    logger.error("Error in process-scheduled-briefs:", errorMessage);
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: errorMessage, traceId }),
       {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders },
