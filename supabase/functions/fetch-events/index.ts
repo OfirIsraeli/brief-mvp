@@ -2,8 +2,20 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-trace-id",
 };
+
+// Logger with trace ID prefix
+const createLogger = (traceId?: string) => ({
+  log: (message: string, ...args: unknown[]) => {
+    const prefix = traceId ? `[${traceId}]` : '[fetch-events]';
+    console.log(`${prefix} ${message}`, ...args);
+  },
+  error: (message: string, ...args: unknown[]) => {
+    const prefix = traceId ? `[${traceId}]` : '[fetch-events]';
+    console.error(`${prefix} ${message}`, ...args);
+  },
+});
 
 interface Event {
   id: string;
@@ -103,8 +115,8 @@ const VENUE_CONFIGS: Record<string, VenueConfig> = {
 };
 
 // Scrape a venue using Firecrawl
-const scrapeVenue = async (config: VenueConfig, apiKey: string): Promise<Event[]> => {
-  console.log(`Scraping venue: ${config.name} (${config.url})`);
+const scrapeVenue = async (config: VenueConfig, apiKey: string, logger: ReturnType<typeof createLogger>): Promise<Event[]> => {
+  logger.log(`Scraping venue: ${config.name} (${config.url})`);
   
   try {
     const response = await fetch('https://api.firecrawl.dev/v1/scrape', {
@@ -123,7 +135,7 @@ const scrapeVenue = async (config: VenueConfig, apiKey: string): Promise<Event[]
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`Firecrawl error for ${config.name}:`, errorText);
+      logger.error(`Firecrawl error for ${config.name}:`, errorText);
       return [];
     }
 
@@ -131,17 +143,17 @@ const scrapeVenue = async (config: VenueConfig, apiKey: string): Promise<Event[]
     const markdown = data.data?.markdown || data.markdown || '';
     
     if (!markdown) {
-      console.log(`No content found for ${config.name}`);
+      logger.log(`No content found for ${config.name}`);
       return [];
     }
 
     // Parse events from markdown content
     const events = parseEventsFromMarkdown(markdown, config);
-    console.log(`Found ${events.length} events from ${config.name}`);
+    logger.log(`Found ${events.length} events from ${config.name}`);
     
     return events;
   } catch (error) {
-    console.error(`Error scraping ${config.name}:`, error);
+    logger.error(`Error scraping ${config.name}:`, String(error));
     return [];
   }
 };
@@ -343,14 +355,21 @@ const handler = async (req: Request): Promise<Response> => {
     return new Response(null, { headers: corsHeaders });
   }
 
+  // Get trace ID from header or body
+  const headerTraceId = req.headers.get('X-Trace-Id');
+
   try {
-    const { brief } = await req.json();
+    const body = await req.json();
+    const { brief, traceId: bodyTraceId } = body;
+    const traceId = headerTraceId || bodyTraceId;
+    const logger = createLogger(traceId);
+    
     const firecrawlApiKey = Deno.env.get('FIRECRAWL_API_KEY');
 
     if (!firecrawlApiKey) {
-      console.error('FIRECRAWL_API_KEY not configured');
+      logger.error('FIRECRAWL_API_KEY not configured');
       return new Response(
-        JSON.stringify({ error: 'Scraping service not configured' }),
+        JSON.stringify({ error: 'Scraping service not configured', traceId }),
         { status: 500, headers: { "Content-Type": "application/json", ...corsHeaders } }
       );
     }
@@ -370,7 +389,7 @@ const handler = async (req: Request): Promise<Response> => {
       venuesToScrape.push(...Object.values(VENUE_CONFIGS));
     }
 
-    console.log(`Scraping ${venuesToScrape.length} venues: ${venuesToScrape.map(v => v.name).join(', ')}`);
+    logger.log(`Scraping ${venuesToScrape.length} venues: ${venuesToScrape.map(v => v.name).join(', ')}`);
 
     // Scrape venues in parallel (with concurrency limit to avoid rate limiting)
     const allEvents: Event[] = [];
@@ -379,7 +398,7 @@ const handler = async (req: Request): Promise<Response> => {
     for (let i = 0; i < venuesToScrape.length; i += CONCURRENCY_LIMIT) {
       const batch = venuesToScrape.slice(i, i + CONCURRENCY_LIMIT);
       const batchResults = await Promise.all(
-        batch.map(venue => scrapeVenue(venue, firecrawlApiKey))
+        batch.map(venue => scrapeVenue(venue, firecrawlApiKey, logger))
       );
       
       for (const events of batchResults) {
@@ -397,7 +416,7 @@ const handler = async (req: Request): Promise<Response> => {
       ? filterEventsForBrief(allEvents, brief)
       : allEvents;
 
-    console.log(`Found ${matchingEvents.length} matching events from ${allEvents.length} total scraped events`);
+    logger.log(`Found ${matchingEvents.length} matching events from ${allEvents.length} total scraped events`);
 
     return new Response(
       JSON.stringify({ 
@@ -405,6 +424,7 @@ const handler = async (req: Request): Promise<Response> => {
         fetchedAt: new Date().toISOString(),
         totalEvents: allEvents.length,
         venuesScraped: venuesToScrape.map(v => v.name),
+        traceId,
       }),
       {
         status: 200,
@@ -413,9 +433,9 @@ const handler = async (req: Request): Promise<Response> => {
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error("Error fetching events:", errorMessage);
+    console.error("[fetch-events] Error:", errorMessage);
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ error: errorMessage, traceId: headerTraceId }),
       {
         status: 500,
         headers: { "Content-Type": "application/json", ...corsHeaders },

@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.filter-events-ai]
 verify_jwt = false
+
+[functions.trigger-brief]
+verify_jwt = false
