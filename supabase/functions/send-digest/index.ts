@@ -204,10 +204,13 @@ const handler = async (req: Request): Promise<Response> => {
 
     if (deliveryMethod === 'whatsapp') {
       const message = formatWhatsAppMessage(briefName, events);
+      logger.log('WhatsApp digest to send:', message);
       result = await sendWhatsApp(deliveryContact, message, logger);
     } else {
       const subject = `🎵 ${briefName}: ${events.length} new event${events.length !== 1 ? 's' : ''}`;
       const html = formatEmailHtml(briefName, events);
+      logger.log('Email digest to send - Subject:', subject);
+      logger.log('Email digest HTML:', html);
       result = await sendEmail(deliveryContact, subject, html, logger);
     }
 
