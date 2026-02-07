@@ -251,6 +251,7 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     logger.log(`AI discovered ${events.length} matching events`);
+    logger.log('Discovered events:', JSON.stringify(events, null, 2));
 
     return new Response(
       JSON.stringify({
