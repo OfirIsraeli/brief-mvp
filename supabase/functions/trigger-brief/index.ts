@@ -127,10 +127,10 @@ const handler = async (req: Request): Promise<Response> => {
     const typedBrief = brief as Brief;
     logger.log(`Processing brief: ${typedBrief.name}`);
 
-    // Step 1: Scrape events from venues
-    logger.log(`Step 1: Scraping venues...`);
-    const fetchEventsResponse = await fetch(
-      `${supabaseUrl}/functions/v1/fetch-events`,
+    // Step 1: Discover events using AI
+    logger.log(`Step 1: AI event discovery...`);
+    const fetchEventsAiResponse = await fetch(
+      `${supabaseUrl}/functions/v1/fetch-events-ai`,
       {
         method: 'POST',
         headers: {
@@ -150,48 +150,35 @@ const handler = async (req: Request): Promise<Response> => {
       }
     );
 
-    if (!fetchEventsResponse.ok) {
-      const errorText = await fetchEventsResponse.text();
-      throw new Error(`Failed to fetch events: ${errorText}`);
+    if (!fetchEventsAiResponse.ok) {
+      const errorText = await fetchEventsAiResponse.text();
+      throw new Error(`Failed to discover events: ${errorText}`);
     }
 
-    const scrapeResult = await fetchEventsResponse.json() as { events: Event[] };
-    logger.log(`Scraped ${scrapeResult.events.length} raw events`);
-
-    // Step 2: Filter events using AI based on genres/artists
-    logger.log(`Step 2: AI filtering...`);
-    const filterResponse = await fetch(
-      `${supabaseUrl}/functions/v1/filter-events-ai`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${supabaseServiceKey}`,
-          'X-Trace-Id': traceId,
-        },
-        body: JSON.stringify({
-          traceId,
-          rawEvents: scrapeResult.events,
-          genres: typedBrief.genres || [],
-          artists: typedBrief.artists || [],
-          briefName: typedBrief.name,
-        }),
-      }
-    );
-
-    let events: Event[];
-    let reasoning: string | undefined;
+    const discoveryResult = await fetchEventsAiResponse.json() as { 
+      events: Array<{
+        event_name: string;
+        artists: string[];
+        genres: string[];
+        date: string;
+        venue: string;
+        event_url: string;
+      }>;
+    };
     
-    if (filterResponse.ok) {
-      const filterResult = await filterResponse.json() as { events: Event[]; reasoning?: string };
-      events = filterResult.events;
-      reasoning = filterResult.reasoning;
-      logger.log(`AI filtered to ${events.length} relevant events`);
-    } else {
-      const errorText = await filterResponse.text();
-      logger.error(`AI filter failed, using raw events: ${errorText}`);
-      events = scrapeResult.events;
-    }
+    // Map AI response format to Event format
+    const events: Event[] = discoveryResult.events.map((e, idx) => ({
+      id: `ai-${Date.now()}-${idx}`,
+      title: e.event_name,
+      venue: e.venue,
+      venueId: e.venue.toLowerCase().replace(/\s+/g, '-'),
+      date: e.date,
+      artists: e.artists,
+      genres: e.genres,
+      url: e.event_url,
+    }));
+    
+    logger.log(`AI discovered ${events.length} matching events`);
 
     // Step 3: Send the digest with filtered events
     logger.log(`Step 3: Sending digest...`);
@@ -227,9 +214,7 @@ const handler = async (req: Request): Promise<Response> => {
         traceId,
         briefId: typedBrief.id,
         briefName: typedBrief.name,
-        eventsScraped: scrapeResult.events.length,
-        eventsFiltered: events.length,
-        reasoning,
+        eventsDiscovered: events.length,
         deliveryMethod: typedBrief.delivery_method,
       }),
       {

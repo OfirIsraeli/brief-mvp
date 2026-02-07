@@ -7,9 +7,7 @@ interface TriggerResult {
   traceId: string;
   briefId: string;
   briefName: string;
-  eventsScraped: number;
-  eventsFiltered: number;
-  reasoning?: string;
+  eventsDiscovered: number;
   deliveryMethod: string;
 }
 
@@ -38,7 +36,7 @@ export const useTriggerBrief = () => {
       const result = response.data as TriggerResult;
       
       toast.success(
-        `Digest sent! Found ${result.eventsFiltered} events from ${result.eventsScraped} scraped.`,
+        `Digest sent! Found ${result.eventsDiscovered} matching events.`,
         { description: `Delivered via ${result.deliveryMethod}` }
       );
       

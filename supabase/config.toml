@@ -1,15 +1,12 @@
 project_id = "vrwrweankojrefqyaous"
 
-[functions.fetch-events]
+[functions.fetch-events-ai]
 verify_jwt = false
 
 [functions.send-digest]
 verify_jwt = false
 
 [functions.process-scheduled-briefs]
-verify_jwt = false
-
-[functions.filter-events-ai]
 verify_jwt = false
 
 [functions.trigger-brief]
