@@ -54,6 +54,9 @@ const formatWhatsAppMessage = (briefName: string, events: Event[]): string => {
     if (event.genres && event.genres.length > 0) {
       message += `   🎸 ${event.genres.join(', ')}\n`;
     }
+    if (event.url) {
+      message += `   🔗 ${event.url}\n`;
+    }
     message += '\n';
   });
 

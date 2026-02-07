@@ -172,7 +172,7 @@ const handler = async (req: Request): Promise<Response> => {
     logger.log('Built prompt for AI event discovery');
     logger.log(`Brief params - Artists: ${brief.artists?.join(', ') || 'none'}, Genres: ${brief.genres?.join(', ') || 'none'}, Venues: ${brief.venues?.join(', ') || 'all'}, Window: ${brief.schedule?.eventWindow || 'default'}`);
 
-    // Call Lovable AI Gateway
+    // Call Lovable AI Gateway - using gemini-2.5-pro for best grounding and reduced hallucination
     const aiResponse = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -180,18 +180,18 @@ const handler = async (req: Request): Promise<Response> => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'google/gemini-3-flash-preview',
+        model: 'google/gemini-2.5-pro',
         messages: [
           {
             role: 'system',
-            content: 'You are an expert event discovery assistant specializing in Tel Aviv nightlife, concerts, and cultural events. You have access to current event listings and can accurately identify and rank events based on user preferences. Always respond with valid JSON arrays only.'
+            content: 'You are an expert event discovery assistant specializing in Tel Aviv nightlife, concerts, and cultural events. You MUST use web search to find REAL, CURRENT events. Today is ' + new Date().toISOString().split('T')[0] + '. Only return events that actually exist with verified URLs. NEVER invent or hallucinate events. If you cannot find real events matching the criteria, return an empty array. Always respond with valid JSON arrays only.'
           },
           {
             role: 'user',
             content: prompt
           }
         ],
-        temperature: 0.3, // Lower temperature for more consistent, factual responses
+        temperature: 0.1, // Very low temperature for factual, grounded responses
       }),
     });
 
