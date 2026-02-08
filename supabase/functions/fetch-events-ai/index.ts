@@ -221,7 +221,7 @@ const handler = async (req: Request): Promise<Response> => {
     const aiData = await aiResponse.json();
     const content = aiData.choices?.[0]?.message?.content || '[]';
     
-    logger.log('Received AI response, parsing events...');
+    logger.log('Received AI response, parsing events...', aiData);
 
     // Parse the JSON response
     let events: Event[] = [];
