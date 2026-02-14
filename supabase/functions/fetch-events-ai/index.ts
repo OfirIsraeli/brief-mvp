@@ -53,8 +53,6 @@ const KNOWN_GENRES = [
   "Metal",
 ] as const;
 
-type KnownGenre = (typeof KNOWN_GENRES)[number];
-
 const isAllGenresSelection = (genres: string[] | undefined | null): boolean => {
   if (!genres || genres.length === 0) return false;
   const selected = new Set(genres.map((g) => g.trim()).filter(Boolean));
@@ -76,62 +74,6 @@ const VENUE_MAP: Record<string, string> = {
   ticketmaster: "ticketmaster",
   artport: "artport",
   "tlv-municipality": "tel aviv municipality",
-};
-
-// Domains per venue/source. We use this to ground discovery via Firecrawl search so the LLM
-// can only extract from REAL pages instead of either hallucinating or returning [].
-const VENUE_DOMAINS: Record<string, string[]> = {
-  barby: ["barby.co.il"],
-  teder: ["teder.fm"],
-  levontin7: ["levontin7.com"],
-  "kuli-alma": ["facebook.com", "instagram.com"],
-  "ozen-bar": ["ozen.co.il"],
-  "suzanne-dellal": ["suzannedellal.org.il"],
-  artport: ["artport.art"],
-  "secret-telaviv": ["secrettelaviv.com"],
-  "go-out": ["go-out.co"],
-  eventim: ["eventim.co.il"],
-  ticketmaster: ["ticketmaster.co.il"],
-  "tlv-municipality": ["tel-aviv.gov.il"],
-};
-
-type SourceDoc = {
-  url: string;
-  title?: string;
-  markdown: string;
-};
-
-const truncate = (text: string, maxChars: number) =>
-  text.length > maxChars ? `${text.slice(0, maxChars)}\n…(truncated)` : text;
-
-const extractUrls = (text: string): string[] => {
-  const matches = text.match(/https?:\/\/[^\s)\]}>"']+/g);
-  return matches ? Array.from(new Set(matches)) : [];
-};
-
-const buildAllowedUrlSets = (sources: SourceDoc[]) => {
-  const urls = new Set<string>();
-  const hosts = new Set<string>();
-
-  for (const s of sources) {
-    urls.add(s.url);
-    try {
-      hosts.add(new URL(s.url).host);
-    } catch {
-      // ignore
-    }
-
-    for (const u of extractUrls(s.markdown)) {
-      urls.add(u);
-      try {
-        hosts.add(new URL(u).host);
-      } catch {
-        // ignore
-      }
-    }
-  }
-
-  return { urls, hosts };
 };
 
 // Convert event window to a concrete date range
@@ -167,129 +109,21 @@ const getTimeWindowRange = (eventWindow: string) => {
     }
   }
 
-  const description = `${start.toISOString().split("T")[0]} to ${end.toISOString().split("T")[0]}`;
-  return { start, end, description };
-};
-
-const buildSearchQueries = (brief: Brief): string[] => {
-  const venueIds = brief.venues?.length ? brief.venues : Object.keys(VENUE_DOMAINS);
-  const year = new Date().getFullYear();
-
-  const queries: string[] = [];
-
-  for (const venueId of venueIds) {
-    const domains = VENUE_DOMAINS[venueId] || [];
-    const domain = domains[0];
-    if (!domain) continue;
-
-    queries.push(`site:${domain} Tel Aviv events ${year}`);
-  }
-
-  return Array.from(new Set(queries)).slice(0, 6);
-};
-
-const firecrawlSearch = async (
-  query: string,
-  logger: ReturnType<typeof createLogger>,
-): Promise<SourceDoc[]> => {
-  const firecrawlApiKey = Deno.env.get("FIRECRAWL_API_KEY");
-  if (!firecrawlApiKey) {
-    logger.error("FIRECRAWL_API_KEY not configured");
-    return [];
-  }
-
-  const resp = await fetch("https://api.firecrawl.dev/v1/search", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${firecrawlApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      query,
-      limit: 3,
-      scrapeOptions: {
-        formats: ["markdown"],
-      },
-    }),
-  });
-
-  if (!resp.ok) {
-    const t = await resp.text();
-    logger.error(`Firecrawl search failed (${resp.status})`, t.slice(0, 500));
-    return [];
-  }
-
-  const data = (await resp.json()) as {
-    success?: boolean;
-    data?: Array<{ url?: string; title?: string; markdown?: string; content?: string }>;
-  };
-
-  const items = data.data || [];
-  return items
-    .map((it) => {
-      const url = typeof it.url === "string" ? it.url : "";
-      const markdown = (
-        typeof it.markdown === "string"
-          ? it.markdown
-          : typeof it.content === "string"
-            ? it.content
-            : ""
-      ).trim();
-      if (!url || !markdown) return null;
-      return { url, title: it.title, markdown } satisfies SourceDoc;
-    })
-    .filter((x): x is SourceDoc => Boolean(x));
-};
-
-const gatherSources = async (
-  brief: Brief,
-  logger: ReturnType<typeof createLogger>,
-): Promise<SourceDoc[]> => {
-  const queries = buildSearchQueries(brief);
-  if (queries.length === 0) return [];
-
-  logger.log(`Firecrawl: running ${queries.length} search queries`);
-
-  const results = await Promise.all(
-    queries.map(async (q) => {
-      try {
-        return await firecrawlSearch(q, logger);
-      } catch (e) {
-        logger.error("Firecrawl query failed:", q, String(e));
-        return [];
-      }
-    }),
-  );
-
-  const flattened = results.flat();
-  const byUrl = new Map<string, SourceDoc>();
-  for (const s of flattened) {
-    if (!byUrl.has(s.url)) byUrl.set(s.url, s);
-  }
-
-  return Array.from(byUrl.values()).slice(0, 8);
+  const startDate = start.toISOString().split("T")[0];
+  const endDate = end.toISOString().split("T")[0];
+  return { start, end, startDate, endDate };
 };
 
 const validateAndFilterEvents = (
   raw: unknown,
   opts: {
     brief: Brief;
-    allowedUrls: Set<string>;
-    allowedHosts: Set<string>;
     start: Date;
     end: Date;
     logger: ReturnType<typeof createLogger>;
   },
 ): Event[] => {
   if (!Array.isArray(raw)) return [];
-
-  const preferredGenres = new Set(
-    (opts.brief.genres || [])
-      .map((g) => g.toLowerCase().trim())
-      .filter(Boolean),
-  );
-
-  const applyGenreFilter = preferredGenres.size > 0 && !isAllGenresSelection(opts.brief.genres);
 
   const out: Event[] = [];
 
@@ -322,23 +156,6 @@ const validateAndFilterEvents = (
     if (Number.isNaN(parsed.getTime())) continue;
     if (parsed < opts.start || parsed > opts.end) continue;
 
-    // URL grounding validation
-    let host = "";
-    try {
-      host = new URL(event_url).host;
-    } catch {
-      continue;
-    }
-
-    const urlOk = opts.allowedUrls.has(event_url) || (host && opts.allowedHosts.has(host));
-    if (!urlOk) continue;
-
-    // Genre intersection (only when user picked a subset of genres)
-    if (applyGenreFilter) {
-      const hasGenre = genres.some((g) => preferredGenres.has(g.toLowerCase().trim()));
-      if (!hasGenre) continue;
-    }
-
     out.push({ event_name, artists, genres, date, venue, event_url });
   }
 
@@ -353,8 +170,8 @@ const validateAndFilterEvents = (
   return deduped.slice(0, 10);
 };
 
-// Build the LLM prompt using brief parameters + grounded sources
-const buildPrompt = (brief: Brief, sources: SourceDoc[]): string => {
+// Build the LLM prompt using brief parameters
+const buildPrompt = (brief: Brief): string => {
   const preferredArtists = brief.artists?.length > 0 ? brief.artists.join(", ") : "none specified";
   const allGenres = isAllGenresSelection(brief.genres);
   const preferredGenres = !brief.genres?.length || allGenres ? "any genre" : brief.genres.join(", ");
@@ -362,37 +179,46 @@ const buildPrompt = (brief: Brief, sources: SourceDoc[]): string => {
     ? brief.venues.map((v) => VENUE_MAP[v] || v).join(", ")
     : "any venue in Tel Aviv";
 
-  const hostVenueHints = Object.entries(VENUE_DOMAINS)
-    .flatMap(([venueId, domains]) => domains.map((d) => `${d} => ${VENUE_MAP[venueId] || venueId}`))
-    .join("\n");
-
   const window = getTimeWindowRange(brief.schedule?.eventWindow || "This month");
 
-  const sourceBlock = sources.length
-    ? sources
-        .map((s, idx) => {
-          const md = truncate(s.markdown, 4000);
-          return `SOURCE_${idx + 1}\nurl: ${s.url}\ncontent:\n${md}`;
-        })
-        .join("\n\n")
-    : "NO_SOURCES_AVAILABLE";
+  return `Role
+You are an event discovery and ranking engine.
+Your task is to identify, filter, rank, and summarize upcoming live events in Tel Aviv that best match a user's stated preferences.
 
-  return `You are a fact-grounded event extraction engine.
-
-You are given a set of web sources (URL + scraped content). You MUST only extract events that are explicitly present in the sources.
-Do NOT use outside knowledge. Do NOT invent events, dates, venues, artists, genres, or URLs.
-
-User preferences
+Inputs
 preferred_artists: ${preferredArtists}
 preferred_genres: ${preferredGenres}
-time_window: ${window.description}
+time_window: ${window.startDate} to ${window.endDate}
 allowed_venues: ${allowedVenues}
-location: Tel Aviv
 
-Output Rules
-- Output ONLY a valid JSON array (no markdown, no commentary)
+Hard Filters (mandatory — discard events failing any condition)
+- Event is not sold out
+- Event date is within the specified time window
+- Event venue exactly matches one of allowed_venues
+- Event location is Tel Aviv
+- Event has a valid public event URL
+
+Sorting / Ranking Logic
+Assign each event a relevance tier based on the first rule it matches (higher tier = higher relevance):
+1. Exact artist match
+   Event includes ≥1 artist that exactly matches an entry in preferred_artists
+2. Artist affinity + exact genre
+   Event includes artists commonly liked by fans of any preferred_artist AND includes ≥1 genre that exactly matches preferred_genres
+3. Artist affinity + similar genre
+   Event includes artists commonly liked by fans of any preferred_artist AND includes ≥1 genre similar (but not identical) to a preferred genre
+4. Exact genre match
+   Event includes ≥1 genre that exactly matches preferred_genres
+
+Events that do not match any ranking rule must be excluded.
+
+Tie-breaking
+Within the same relevance tier, sort by earliest event date (ascending)
+
+Output Constraints
 - Return at most 10 events
-- If no matching events are explicitly present in sources, return []
+- Results must already be filtered, ranked, and sorted
+- Output only a valid JSON array
+- Do not include explanatory text, comments, or metadata
 
 Output Schema (per event)
 {
@@ -404,13 +230,11 @@ Output Schema (per event)
   "event_url": "string"
 }
 
-Hard Requirements
-- event_url MUST be a valid public URL that appears in the sources content OR, if none is present for that event, use the SOURCE url where the event is mentioned.
-- date MUST be within the given time_window.
-${isAllGenresSelection(brief.genres) || !brief.genres?.length ? "- genre: no filtering required.\n" : "- genre MUST include at least one of preferred_genres.\n"}
-
-Sources
-${sourceBlock}`;
+Strict Rules
+- Do not invent or hallucinate events, artists, venues, genres, or URLs
+- Do not infer missing fields
+- If fewer than 10 valid events exist, return only those found
+- If no events match, return an empty JSON array ([])`;
 };
 
 const handler = async (req: Request): Promise<Response> => {
@@ -442,49 +266,16 @@ const handler = async (req: Request): Promise<Response> => {
       });
     }
 
-    logger.log("Gathering grounded sources for event extraction...");
-    const sources = await gatherSources(brief as Brief, logger);
-    logger.log(`Sources gathered: ${sources.length}`);
-    logger.log(
-      "Source URLs:",
-      sources.map((s) => s.url),
-    );
-    // If we have zero sources, the non-hallucination constraints will almost always produce [].
-    // Return early with diagnostics so it's obvious why.
-    if (sources.length === 0) {
-      logger.error("No grounded sources found (Firecrawl returned 0 results); returning empty events list");
-      return new Response(
-        JSON.stringify({
-          events: [],
-          traceId,
-          discoveredAt: new Date().toISOString(),
-          briefParams: {
-            artists: (brief as Brief).artists || [],
-            genres: (brief as Brief).genres || [],
-            venues: (brief as Brief).venues || [],
-            eventWindow: (brief as Brief).schedule?.eventWindow || "default",
-          },
-          diagnostics: {
-            sourceCount: 0,
-          },
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json", ...corsHeaders },
-        },
-      );
-    }
-
-    const prompt = buildPrompt(brief as Brief, sources);
+    logger.log("Building prompt for event discovery...");
+    const prompt = buildPrompt(brief as Brief);
     const window = getTimeWindowRange((brief as Brief).schedule?.eventWindow || "This month");
-    const { urls: allowedUrls, hosts: allowedHosts } = buildAllowedUrlSets(sources);
 
-    logger.log("Built grounded extraction prompt for AI");
+    logger.log("Built event discovery prompt for AI");
     logger.log(
       `Brief params - Artists: ${(brief as Brief).artists?.join(", ") || "none"}, Genres: ${(brief as Brief).genres?.join(", ") || "none"}, Venues: ${(brief as Brief).venues?.join(", ") || "all"}, Window: ${(brief as Brief).schedule?.eventWindow || "default"}`,
     );
 
-    // Call Lovable AI Gateway. We do NOT rely on web browsing inside the model.
+    // Call Lovable AI Gateway for event discovery
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -497,14 +288,13 @@ const handler = async (req: Request): Promise<Response> => {
           {
             role: "system",
             content:
-              "You extract structured events strictly from provided sources. Output JSON array only. Never invent facts.",
+              "You are an event discovery engine. You discover real upcoming events and rank them by relevance. Output JSON array only.",
           },
           {
             role: "user",
             content: prompt,
           },
         ],
-        
         max_completion_tokens: 2200,
       }),
     });
@@ -539,7 +329,6 @@ const handler = async (req: Request): Promise<Response> => {
     logger.log("AI response received", {
       finishReason,
       contentChars: typeof content === "string" ? content.length : 0,
-      sourceCount: sources.length,
     });
 
     // Parse the JSON response
@@ -560,8 +349,6 @@ const handler = async (req: Request): Promise<Response> => {
       const parsed = JSON.parse(cleanContent);
       const validated = validateAndFilterEvents(parsed, {
         brief: brief as Brief,
-        allowedUrls,
-        allowedHosts,
         start: window.start,
         end: window.end,
         logger,
@@ -589,7 +376,6 @@ const handler = async (req: Request): Promise<Response> => {
           eventWindow: (brief as Brief).schedule?.eventWindow || "default",
         },
         diagnostics: {
-          sourceCount: sources.length,
           aiFinishReason: finishReason,
         },
       }),
