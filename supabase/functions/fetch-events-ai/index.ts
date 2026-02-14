@@ -123,7 +123,7 @@ const validateAndFilterEvents = (
     start: Date;
     end: Date;
     logger: ReturnType<typeof createLogger>;
-  },
+  }
 ): Event[] => {
   if (!Array.isArray(raw)) return [];
 
@@ -173,25 +173,36 @@ const validateAndFilterEvents = (
 };
 
 // Build the LLM prompt using brief parameters
-const buildPrompt = (brief: Brief): string => {
-  const preferredArtists = brief.artists?.length > 0 ? brief.artists.join(", ") : "none specified";
-  const allGenres = isAllGenresSelection(brief.genres);
-  const preferredGenres = !brief.genres?.length || allGenres ? "any genre" : brief.genres.join(", ");
-  const allowedVenues = brief.venues?.length > 0
-    ? brief.venues.map((v) => VENUE_MAP[v] || v).join(", ")
-    : "any venue in Tel Aviv";
-
+const buildPrompt = (brief: Brief, logger: ReturnType<typeof createLogger>): string => {
   const window = getTimeWindowRange(brief.schedule?.eventWindow || "This month");
+
+  // Build inputs section conditionally
+  const inputs: string[] = [];
+
+  if (brief.artists?.length > 0) {
+    inputs.push(`preferred_artists: ${brief.artists.join(", ")}`);
+  }
+
+  const allGenres = isAllGenresSelection(brief.genres);
+  if (brief.genres?.length && !allGenres) {
+    inputs.push(`preferred_genres: ${brief.genres.join(", ")}`);
+  }
+
+  inputs.push(`time_window: ${window.startDate} to ${window.endDate}`);
+
+  if (brief.venues?.length > 0) {
+    const venueNames = brief.venues.map((v) => VENUE_MAP[v] || v).join(", ");
+    inputs.push(`allowed_venues: ${venueNames}`);
+  }
+
+  logger.log(`Prompt inputs: ${inputs.join(" | ")}`);
 
   return `Role
 You are an event discovery and ranking engine.
 Your task is to identify, filter, rank, and summarize upcoming live events in Tel Aviv that best match a user's stated preferences.
 
 Inputs
-preferred_artists: ${preferredArtists}
-preferred_genres: ${preferredGenres}
-time_window: ${window.startDate} to ${window.endDate}
-allowed_venues: ${allowedVenues}
+${inputs.join("\n")}
 
 Hard Filters (mandatory — discard events failing any condition)
 - Event is not sold out
@@ -269,13 +280,11 @@ const handler = async (req: Request): Promise<Response> => {
     }
 
     logger.log("Building prompt for event discovery...");
-    const prompt = buildPrompt(brief as Brief);
+    const prompt = buildPrompt(brief as Brief, logger);
     const window = getTimeWindowRange((brief as Brief).schedule?.eventWindow || "This month");
 
     logger.log("Built event discovery prompt for AI");
-    logger.log(
-      `Brief params - Artists: ${(brief as Brief).artists?.join(", ") || "none"}, Genres: ${(brief as Brief).genres?.join(", ") || "none"}, Venues: ${(brief as Brief).venues?.join(", ") || "all"}, Window: ${(brief as Brief).schedule?.eventWindow || "default"}`,
-    );
+    logger.log(`Full prompt:\n ${prompt}`);
 
     // Call Lovable AI Gateway for event discovery
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -289,8 +298,7 @@ const handler = async (req: Request): Promise<Response> => {
         messages: [
           {
             role: "system",
-            content:
-              "You are an event discovery engine. You discover real upcoming events and rank them by relevance. Output JSON array only.",
+            content: "You are an event discovery engine. You discover real upcoming events and rank them by relevance. Output JSON array only.",
           },
           {
             role: "user",
@@ -384,7 +392,7 @@ const handler = async (req: Request): Promise<Response> => {
       {
         status: 200,
         headers: { "Content-Type": "application/json", ...corsHeaders },
-      },
+      }
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
