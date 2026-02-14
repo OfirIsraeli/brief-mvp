@@ -6,15 +6,17 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-trace-id",
 };
 
-// Logger with trace ID prefix
+const EDGE_FUNCTION_NAME = "send-digest";
+
+// Logger with trace ID prefix and edge function name context
 const createLogger = (traceId?: string) => ({
   log: (message: string, ...args: unknown[]) => {
-    const prefix = traceId ? `[${traceId}]` : '[send-digest]';
-    console.log(`${prefix} ${message}`, ...args);
+    const prefix = traceId ? `[${traceId}]` : `[${EDGE_FUNCTION_NAME}]`;
+    console.log(`${prefix} ${message}`, { edge_function_name: EDGE_FUNCTION_NAME, ...((typeof args[0] === "object" && args[0] !== null) ? args[0] as Record<string, unknown> : {}) }, ...(typeof args[0] === "object" ? args.slice(1) : args));
   },
   error: (message: string, ...args: unknown[]) => {
-    const prefix = traceId ? `[${traceId}]` : '[send-digest]';
-    console.error(`${prefix} ${message}`, ...args);
+    const prefix = traceId ? `[${traceId}]` : `[${EDGE_FUNCTION_NAME}]`;
+    console.error(`${prefix} ${message}`, { edge_function_name: EDGE_FUNCTION_NAME, ...((typeof args[0] === "object" && args[0] !== null) ? args[0] as Record<string, unknown> : {}) }, ...(typeof args[0] === "object" ? args.slice(1) : args));
   },
 });
 
@@ -241,7 +243,7 @@ const handler = async (req: Request): Promise<Response> => {
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    console.error("[send-digest] Error:", errorMessage);
+    console.error(`[${EDGE_FUNCTION_NAME}] Error:`, errorMessage, { edge_function_name: EDGE_FUNCTION_NAME });
     return new Response(
       JSON.stringify({ error: errorMessage, traceId: headerTraceId }),
       {

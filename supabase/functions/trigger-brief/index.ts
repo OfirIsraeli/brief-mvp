@@ -11,13 +11,15 @@ const generateTraceId = (): string => {
   return `manual_${Date.now()}_${crypto.randomUUID().slice(0, 8)}`;
 };
 
-// Logger with trace ID prefix
+const EDGE_FUNCTION_NAME = "trigger-brief";
+
+// Logger with trace ID prefix and edge function name context
 const createLogger = (traceId: string) => ({
   log: (message: string, ...args: unknown[]) => {
-    console.log(`[${traceId}] ${message}`, ...args);
+    console.log(`[${traceId}] ${message}`, { edge_function_name: EDGE_FUNCTION_NAME, ...((typeof args[0] === "object" && args[0] !== null) ? args[0] as Record<string, unknown> : {}) }, ...(typeof args[0] === "object" ? args.slice(1) : args));
   },
   error: (message: string, ...args: unknown[]) => {
-    console.error(`[${traceId}] ${message}`, ...args);
+    console.error(`[${traceId}] ${message}`, { edge_function_name: EDGE_FUNCTION_NAME, ...((typeof args[0] === "object" && args[0] !== null) ? args[0] as Record<string, unknown> : {}) }, ...(typeof args[0] === "object" ? args.slice(1) : args));
   },
 });
 
